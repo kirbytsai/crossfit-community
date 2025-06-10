@@ -1,7 +1,9 @@
-import mongoose, { Schema, Document, Model } from 'mongoose';
+import mongoose, { Schema, Document, Model, Types } from 'mongoose';
 import { User } from '@/types';
 
-export interface IUserDocument extends Omit<User, '_id'>, Document {}
+export interface IUserDocument extends Omit<User, '_id'>, Document {
+  _id: Types.ObjectId;
+}
 
 // 定義靜態方法的介面
 interface IUserModel extends Model<IUserDocument> {
@@ -37,12 +39,15 @@ const userSchema = new Schema<IUserDocument>(
     personalInfo: {
       height: Number,
       weight: Number,
-      age: Number,
+      birthDate: Date,
       gender: {
         type: String,
         enum: ['male', 'female', 'other'],
       },
-      injuryNotes: [String],
+      injuryNotes: [{
+        date: Date,
+        note: String
+      }],
     },
     crossfitData: {
       primaryGym: {
