@@ -2,134 +2,56 @@ import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import WodModel from '@/models/Wod';
 import { verifyToken } from '@/lib/auth';
-import mongoose from 'mongoose';
 
 interface Params {
   params: Promise<{
-    wodId: string;
+    userId: string;
   }>;
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
   try {
-    const { wodId } = await params;
-
-    if (!mongoose.Types.ObjectId.isValid(wodId)) {
-      return NextResponse.json(
-        { error: 'Invalid WOD ID' },
-        { status: 400 }
-      );
-    }
-
-    await dbConnect();
-
-    const wod = await WodModel.findById(wodId)
-      .populate('metadata.createdBy', 'username displayName profilePicture');
-
-    if (!wod) {
-      return NextResponse.json(
-        { error: 'WOD not found' },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json({ wod });
-  } catch (error) {
-    console.error('Get WOD error:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch WOD' },
-      { status: 500 }
-    );
-  }
-}
-
-export async function PUT(request: NextRequest, { params }: Params) {
-  try {
     const token = request.cookies.get('auth-token')?.value;
     if (!token) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { error: 'Unauthorized - No token' },
         { status: 401 }
       );
     }
 
-    const payload = verifyToken(token);
-    const { wodId } = await params;
-    const body = await request.json();
-
-    await dbConnect();
-
-    // Check ownership
-    const wod = await WodModel.findById(wodId);
-    if (!wod) {
+    let payload;
+    try {
+      payload = verifyToken(token);
+    } catch (error) {
       return NextResponse.json(
-        { error: 'WOD not found' },
-        { status: 404 }
-      );
-    }
-
-    if (wod.metadata.createdBy.toString() !== payload.userId) {
-      return NextResponse.json(
-        { error: 'You can only edit your own WODs' },
-        { status: 403 }
-      );
-    }
-
-    // Update WOD
-    const updatedWod = await WodModel.findByIdAndUpdate(
-      wodId,
-      { $set: body },
-      { new: true, runValidators: true }
-    );
-
-    return NextResponse.json({ wod: updatedWod });
-  } catch (error) {
-    console.error('Update WOD error:', error);
-    return NextResponse.json(
-      { error: 'Failed to update WOD' },
-      { status: 500 }
-    );
-  }
-}
-
-export async function DELETE(request: NextRequest, { params }: Params) {
-  try {
-    const token = request.cookies.get('auth-token')?.value;
-    if (!token) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
+        { error: 'Invalid token' },
         { status: 401 }
       );
     }
 
-    const payload = verifyToken(token);
-    const { wodId } = await params;
+    const { userId } = await params;
+    
+    console.log('Fetching WODs for user:', userId);
+    console.log('Token payload userId:', payload.userId);
 
-    await dbConnect();
-
-    // Check ownership
-    const wod = await WodModel.findById(wodId);
-    if (!wod) {
+    // 使用者只能查看自己的 WODs（暫時）
+    if (payload.userId !== userId) {
       return NextResponse.json(
-        { error: 'WOD not found' },
-        { status: 404 }
-      );
-    }
-
-    if (wod.metadata.createdBy.toString() !== payload.userId) {
-      return NextResponse.json(
-        { error: 'You can only delete your own WODs' },
+        { error: 'Forbidden - User mismatch', expected: payload.userId, received: userId },
         { status: 403 }
       );
     }
 
-    await WodModel.findByIdAndDelete(wodId);
+    await dbConnect();
+    
+    const wods = await WodModel.findByUser(userId);
+    console.log('Found WODs:', wods.length);
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ wods });
   } catch (error) {
-    console.error('Delete WOD error:', error);
+    console.error('Get user WODs error:', error);
     return NextResponse.json(
-      { error: 'Failed to delete WOD' },
+      { error: error instanceof Error ? error.message : 'Internal server error' },
       { status: 500 }
     );
   }

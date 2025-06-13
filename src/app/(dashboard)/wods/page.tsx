@@ -22,6 +22,8 @@ export default function WodsPage() {
 
   useEffect(() => {
     if (user) {
+      console.log('Current user:', user);
+      console.log('User ID:', user.id);
       fetchWods();
     }
   }, [user]);
