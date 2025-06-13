@@ -31,13 +31,18 @@ export async function GET(request: NextRequest, { params }: Params) {
     }
 
     await dbConnect();
-    const user = await UserModel.findById(userId).select('-__v');
+    const user = await UserModel.findById(userId).select('-__v').lean();
 
     if (!user) {
       return NextResponse.json(
         { error: 'User not found' },
         { status: 404 }
       );
+    }
+
+    // 確保 benchmarkScores 是物件而不是 Map
+    if (user.crossfitData?.benchmarkScores instanceof Map) {
+      user.crossfitData.benchmarkScores = Object.fromEntries(user.crossfitData.benchmarkScores);
     }
 
     return NextResponse.json({ user });

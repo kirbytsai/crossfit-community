@@ -155,6 +155,8 @@ export default function ProfilePage() {
       const response = await fetch(`/api/users/${user?.id}`);
       if (response.ok) {
         const data = await response.json();
+        console.log('Loaded user data:', data.user);
+        
         if (data.user.personalInfo) {
           setPersonalInfo({
             height: data.user.personalInfo.height || '',
@@ -164,11 +166,31 @@ export default function ProfilePage() {
             injuryNotes: data.user.personalInfo.injuryNotes || []
           });
         }
+        
         if (data.user.crossfitData?.benchmarkScores) {
-          setBenchmarks(prev => ({
-            ...prev,
-            ...data.user.crossfitData.benchmarkScores
-          }));
+          console.log('Loaded benchmark scores:', data.user.crossfitData.benchmarkScores);
+          
+          // 將 MongoDB 的資料轉換成我們的格式
+          const loadedBenchmarks: Record<string, BenchmarkScore> = {};
+          const scores = data.user.crossfitData.benchmarkScores;
+          
+          // 處理每個 WOD
+          Object.keys(wodDetails).forEach(wodName => {
+            if (scores[wodName]) {
+              loadedBenchmarks[wodName] = {
+                time: scores[wodName].time,
+                rounds: scores[wodName].rounds,
+                reps: scores[wodName].reps,
+                date: scores[wodName].date,
+                rxd: scores[wodName].rxd || false
+              };
+            } else {
+              loadedBenchmarks[wodName] = { rxd: false };
+            }
+          });
+          
+          console.log('Formatted benchmarks:', loadedBenchmarks);
+          setBenchmarks(loadedBenchmarks);
         }
       }
     } catch (error) {
@@ -238,6 +260,14 @@ export default function ProfilePage() {
 
   const handleSaveBenchmark = async (wodName: string) => {
     try {
+      const score = benchmarks[wodName];
+      
+      // 確保有輸入分數
+      if (!score.time && !score.rounds && !score.date) {
+        toast.error('Please enter a score before saving');
+        return;
+      }
+      
       const response = await fetch(`/api/users/${user?.id}/benchmark-scores`, {
         method: 'PUT',
         headers: {
@@ -245,15 +275,26 @@ export default function ProfilePage() {
         },
         body: JSON.stringify({
           wodName,
-          score: benchmarks[wodName],
-          date: new Date().toISOString(),
+          score: {
+            time: score.time,
+            rounds: score.rounds,
+            reps: score.reps,
+            rxd: score.rxd || false,
+            date: score.date || new Date().toISOString()
+          }
         }),
       });
 
       if (response.ok) {
-        toast.success(`${wodName.toUpperCase()} score updated successfully`);
+        toast.success(`${wodDetails[wodName].name} score saved successfully`);
+        // 重新載入資料以確保同步
+        await fetchUserProfile();
+      } else {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to save');
       }
     } catch (error) {
+      console.error('Save benchmark error:', error);
       toast.error('Failed to update benchmark score');
     }
   };
@@ -275,6 +316,19 @@ export default function ProfilePage() {
       age--;
     }
     return age;
+  };
+
+  const formatScore = (wodName: string, score: BenchmarkScore): string => {
+    const wod = wodDetails[wodName];
+    if (!wod) return '';
+    
+    if (wod.type === 'For Time' && score.time) {
+      return formatTime(score.time);
+    } else if (wod.type === 'AMRAP' && score.rounds !== undefined) {
+      const reps = score.reps || 0;
+      return reps > 0 ? `${score.rounds} rounds + ${reps} reps` : `${score.rounds} rounds`;
+    }
+    return '';
   };
 
   if (loading) {
@@ -554,19 +608,52 @@ export default function ProfilePage() {
                               />
                             </div>
                           ) : (
-                            <input
-                              type="text"
-                              placeholder="MM:SS"
-                              value={formatTime(score.time)}
-                              onChange={(e) => {
-                                const time = parseTime(e.target.value);
-                                setBenchmarks(prev => ({
-                                  ...prev,
-                                  [wodName]: { ...prev[wodName], time }
-                                }));
-                              }}
-                              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent"
-                            />
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min="0"
+                                max="59"
+                                placeholder="MM"
+                                value={score.time ? Math.floor(score.time / 60) : ''}
+                                onChange={(e) => {
+                                  const mins = Number(e.target.value) || 0;
+                                  const secs = score.time ? score.time % 60 : 0;
+                                  setBenchmarks(prev => ({
+                                    ...prev,
+                                    [wodName]: { ...prev[wodName], time: mins * 60 + secs }
+                                  }));
+                                }}
+                                className="w-16 px-2 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent text-center"
+                              />
+                              <span className="text-slate-600 font-semibold">:</span>
+                              <input
+                                type="number"
+                                min="0"
+                                max="59"
+                                placeholder="SS"
+                                value={score.time ? (score.time % 60).toString().padStart(2, '0') : ''}
+                                onChange={(e) => {
+                                  const secs = Math.min(59, Math.max(0, Number(e.target.value) || 0));
+                                  const mins = score.time ? Math.floor(score.time / 60) : 0;
+                                  setBenchmarks(prev => ({
+                                    ...prev,
+                                    [wodName]: { ...prev[wodName], time: mins * 60 + secs }
+                                  }));
+                                }}
+                                onBlur={(e) => {
+                                  // 自動補零
+                                  const secs = Number(e.target.value) || 0;
+                                  if (secs < 10 && e.target.value.length === 1) {
+                                    const mins = score.time ? Math.floor(score.time / 60) : 0;
+                                    setBenchmarks(prev => ({
+                                      ...prev,
+                                      [wodName]: { ...prev[wodName], time: mins * 60 + secs }
+                                    }));
+                                  }
+                                }}
+                                className="w-16 px-2 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent text-center"
+                              />
+                            </div>
                           )}
                         </div>
                         <div>

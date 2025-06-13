@@ -30,7 +30,9 @@ export async function PUT(request: NextRequest, { params }: Params) {
     }
 
     const body = await request.json();
-    const { wodName, score, date } = body;
+    const { wodName, score } = body;
+    
+    console.log('Saving benchmark:', { wodName, score });
 
     // Validate WOD name
     const validWods = [
@@ -47,30 +49,41 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
     await dbConnect();
     
-    // Prepare the score object
-    const scoreData: any = {
-      date: date || new Date(),
-      rxd: score.rxd || false
-    };
-
-    // Add the appropriate score field based on what's provided
-    if (score.time !== undefined) scoreData.time = score.time;
-    if (score.rounds !== undefined) scoreData.rounds = score.rounds;
-    if (score.reps !== undefined) scoreData.reps = score.reps;
-    if (score.weight !== undefined) scoreData.weight = score.weight;
-
-    // Update using dot notation to update specific benchmark
+    // 準備要儲存的資料
+    const benchmarkData: any = {};
+    
+    if (score.time !== undefined && score.time !== null) {
+      benchmarkData.time = score.time;
+    }
+    if (score.rounds !== undefined && score.rounds !== null) {
+      benchmarkData.rounds = score.rounds;
+    }
+    if (score.reps !== undefined && score.reps !== null) {
+      benchmarkData.reps = score.reps;
+    }
+    if (score.date) {
+      benchmarkData.date = new Date(score.date);
+    } else {
+      benchmarkData.date = new Date();
+    }
+    benchmarkData.rxd = score.rxd || false;
+    
+    console.log('Benchmark data to save:', benchmarkData);
+    
+    // 使用 dot notation 更新特定的 benchmark
     const updatePath = `crossfitData.benchmarkScores.${wodName.toLowerCase()}`;
     
     const user = await UserModel.findByIdAndUpdate(
       userId,
       { 
         $set: { 
-          [updatePath]: scoreData
+          [updatePath]: benchmarkData
         } 
       },
       { new: true, runValidators: true }
-    ).select('-__v');
+    );
+    
+    console.log('Updated user benchmarks:', user?.crossfitData?.benchmarkScores);
 
     if (!user) {
       return NextResponse.json(

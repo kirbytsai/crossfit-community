@@ -55,15 +55,8 @@ const userSchema = new Schema<IUserDocument>(
         ref: 'Gym',
       },
       benchmarkScores: {
-        type: Map,
-        of: {
-          time: Number,
-          rounds: Number,
-          reps: Number,
-          weight: Number,
-          date: Date,
-          rxd: Boolean,
-        },
+        type: Object,
+        default: {}
       },
       personalRecords: {
         type: Map,
