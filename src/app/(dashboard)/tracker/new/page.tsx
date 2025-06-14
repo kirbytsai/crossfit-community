@@ -52,9 +52,23 @@ export default function NewScorePage() {
     try {
       // 獲取使用者的 WODs
       const response = await fetch('/api/wods/my-wods');
+      const data = await response.json();
+      
+      console.log('Fetched WODs:', data);
+      
       if (response.ok) {
-        const data = await response.json();
-        setWods(data.wods);
+        setWods(data.wods || []);
+        
+        // 如果有預選的 WOD ID，設定它
+        if (preSelectedWodId && data.wods) {
+          const preSelectedWod = data.wods.find((w: WOD) => w._id === preSelectedWodId);
+          if (preSelectedWod) {
+            setSelectedWod(preSelectedWod);
+          }
+        }
+      } else {
+        console.error('Failed to fetch WODs:', data);
+        toast.error(data.error || 'Failed to load WODs');
       }
     } catch (error) {
       console.error('Failed to fetch WODs:', error);
@@ -111,7 +125,7 @@ export default function NewScorePage() {
     }
 
     const score = formatScore();
-    if (!score) {
+    if (!score && selectedWod?.classification.scoringType !== 'Not Scored') {
       toast.error('Please enter a score');
       return;
     }
@@ -122,7 +136,7 @@ export default function NewScorePage() {
       const scoreData = {
         wodId: selectedWodId,
         performance: {
-          score,
+          score: score || 'Completed',
           scoreValue: calculateScoreValue(),
           scoringType: selectedWod!.classification.scoringType,
           rxd,
@@ -135,6 +149,8 @@ export default function NewScorePage() {
         },
       };
 
+      console.log('Submitting score data:', scoreData);
+
       const response = await fetch('/api/scores', {
         method: 'POST',
         headers: {
@@ -143,12 +159,14 @@ export default function NewScorePage() {
         body: JSON.stringify(scoreData),
       });
 
+      const result = await response.json();
+      console.log('Save response:', result);
+
       if (response.ok) {
         toast.success('Score recorded successfully!');
         router.push('/tracker');
       } else {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to save score');
+        throw new Error(result.error || 'Failed to save score');
       }
     } catch (error) {
       console.error('Save score error:', error);
@@ -207,12 +225,24 @@ export default function NewScorePage() {
                   required
                 >
                   <option value="">Choose a WOD...</option>
-                  {wods.map((wod) => (
-                    <option key={wod._id} value={wod._id}>
-                      {wod.name} ({wod.classification.scoringType})
-                    </option>
-                  ))}
+                  {wods.length === 0 ? (
+                    <option value="" disabled>No WODs available - Create one first</option>
+                  ) : (
+                    wods.map((wod) => (
+                      <option key={wod._id} value={wod._id}>
+                        {wod.name} ({wod.classification.scoringType})
+                      </option>
+                    ))
+                  )}
                 </select>
+                {wods.length === 0 && (
+                  <p className="mt-2 text-sm text-slate-500">
+                    You need to create a WOD first.{' '}
+                    <Link href="/wods/new" className="text-blue-600 hover:underline">
+                      Create your first WOD →
+                    </Link>
+                  </p>
+                )}
               </div>
 
               <div>
