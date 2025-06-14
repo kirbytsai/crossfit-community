@@ -1,3 +1,4 @@
+// src/app/api/scores/user/[userId]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import ScoreModel from '@/models/Score';
@@ -21,8 +22,9 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     const payload = verifyToken(token);
     const { userId } = await params;
-
-    // 使用者只能查看自己的成績
+    const { searchParams } = new URL(request.url);
+    
+    // 檢查權限：用戶只能查看自己的成績
     if (payload.userId !== userId) {
       return NextResponse.json(
         { error: 'Forbidden' },
@@ -30,34 +32,35 @@ export async function GET(request: NextRequest, { params }: Params) {
       );
     }
 
-    const { searchParams } = new URL(request.url);
     const month = searchParams.get('month');
+    const limit = parseInt(searchParams.get('limit') || '50');
 
     await dbConnect();
 
     let query: any = { userId };
 
-    // 如果有指定月份，過濾該月份的成績
+    // 如果有月份篩選
     if (month) {
-      const startDate = new Date(month + '-01');
-      const endDate = new Date(startDate);
-      endDate.setMonth(endDate.getMonth() + 1);
-      
+      const startDate = new Date(`${month}-01`);
+      const endDate = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0);
       query['details.date'] = {
         $gte: startDate,
-        $lt: endDate
+        $lte: endDate
       };
     }
 
     const scores = await ScoreModel.find(query)
-      .populate('wodId')
-      .sort({ 'details.date': -1 });
+      .populate('wodId', 'name classification.scoringType')
+      .sort({ 'details.date': -1 })
+      .limit(limit);
+
+    console.log(`Found ${scores.length} scores for user ${userId}`);
 
     return NextResponse.json({ scores });
   } catch (error) {
     console.error('Get user scores error:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: error instanceof Error ? error.message : 'Internal server error' },
       { status: 500 }
     );
   }

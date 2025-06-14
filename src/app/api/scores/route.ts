@@ -1,7 +1,7 @@
+// src/app/api/scores/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import ScoreModel from '@/models/Score';
-import WodModel from '@/models/Wod';
 import { verifyToken } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
@@ -17,46 +17,36 @@ export async function POST(request: NextRequest) {
     const payload = verifyToken(token);
     const body = await request.json();
 
-    // Validate required fields
-    if (!body.wodId || !body.performance?.score) {
+    // 驗證必要欄位
+    if (!body.wodId) {
       return NextResponse.json(
-        { error: 'WOD ID and score are required' },
+        { error: 'WOD ID is required' },
+        { status: 400 }
+      );
+    }
+
+    if (!body.performance?.score) {
+      return NextResponse.json(
+        { error: 'Score is required' },
         { status: 400 }
       );
     }
 
     await dbConnect();
 
-    // Verify WOD exists
-    const wod = await WodModel.findById(body.wodId);
-    if (!wod) {
-      return NextResponse.json(
-        { error: 'WOD not found' },
-        { status: 404 }
-      );
-    }
-
-    // Create score
+    // 建立成績記錄
     const score = await ScoreModel.create({
+      ...body,
       userId: payload.userId,
-      wodId: body.wodId,
-      performance: body.performance,
-      details: body.details,
-      social: {
-        isPublic: body.isPublic !== false, // Default to public
-      },
     });
 
-    // Update WOD completed count
-    await WodModel.findByIdAndUpdate(body.wodId, {
-      $inc: { 'engagement.completedCount': 1 },
-    });
+    console.log('Score created:', score._id);
 
     return NextResponse.json({ score });
   } catch (error) {
     console.error('Create score error:', error);
     return NextResponse.json(
-      { error: 'Failed to create score' },
+      { error: error instanceof Error ? error.message : 'Failed to create score' },
       { status: 500 }
     );
   }

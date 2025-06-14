@@ -50,7 +50,6 @@ export default function NewScorePage() {
 
   const fetchWods = async () => {
     try {
-      // 獲取使用者的 WODs
       const response = await fetch('/api/wods/my-wods');
       const data = await response.json();
       
@@ -59,7 +58,6 @@ export default function NewScorePage() {
       if (response.ok) {
         setWods(data.wods || []);
         
-        // 如果有預選的 WOD ID，設定它
         if (preSelectedWodId && data.wods) {
           const preSelectedWod = data.wods.find((w: WOD) => w._id === preSelectedWodId);
           if (preSelectedWod) {
@@ -75,6 +73,38 @@ export default function NewScorePage() {
       toast.error('Failed to load WODs');
     } finally {
       setIsLoadingWods(false);
+    }
+  };
+
+  // 格式化動作顯示
+  const formatMovement = (movement: any) => {
+    let result = '';
+    if (movement.reps) {
+      result += `${movement.reps} `;
+    }
+    result += movement.name;
+    if (movement.weight?.male || movement.weight?.female) {
+      result += ` (${movement.weight.male || movement.weight.female})`;
+    }
+    return result;
+  };
+
+  // 格式化 WOD 結構顯示
+  const formatWodStructure = (wod: WOD) => {
+    if (!wod.structure?.movements) return '';
+    
+    const movements = wod.structure.movements.map(formatMovement);
+    
+    if (wod.structure.rounds && wod.structure.rounds > 1) {
+      return `${wod.structure.rounds} rounds of: ${movements.join(', ')}`;
+    } else if (wod.classification.scoringType === 'AMRAP' && wod.structure.timeLimit) {
+      const timeInMinutes = Math.floor(wod.structure.timeLimit / 60);
+      return `${timeInMinutes} min AMRAP: ${movements.join(', ')}`;
+    } else if (wod.classification.scoringType === 'EMOM' && wod.structure.timeLimit) {
+      const timeInMinutes = Math.floor(wod.structure.timeLimit / 60);
+      return `${timeInMinutes} min EMOM: ${movements.join(', ')}`;
+    } else {
+      return `For Time: ${movements.join(', ')}`;
     }
   };
 
@@ -95,7 +125,7 @@ export default function NewScorePage() {
     } else if (scoringType === 'Max Reps') {
       return scoreReps ? `${scoreReps} reps` : '';
     } else {
-      return notes; // For other types, use notes as score
+      return notes;
     }
   };
 
@@ -107,8 +137,6 @@ export default function NewScorePage() {
     if (scoringType === 'For Time') {
       return scoreTime.minutes * 60 + scoreTime.seconds;
     } else if (scoringType === 'AMRAP') {
-      // For AMRAP, higher is better
-      // Convert to a single number for ranking: rounds * 1000 + reps
       return (Number(scoreRounds) || 0) * 1000 + (Number(scoreReps) || 0);
     } else if (scoringType === 'Max Reps') {
       return Number(scoreReps) || 0;
@@ -176,250 +204,255 @@ export default function NewScorePage() {
     }
   };
 
-  const feelingEmojis = [
-    { rating: 1, emoji: '😵', label: 'Exhausted' },
-    { rating: 2, emoji: '😓', label: 'Tough' },
-    { rating: 3, emoji: '😊', label: 'Good' },
-    { rating: 4, emoji: '💪', label: 'Strong' },
-    { rating: 5, emoji: '🔥', label: 'Amazing' },
-  ];
-
   if (loading || isLoadingWods) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-900"></div>
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-900 mx-auto"></div>
+          <p className="mt-4 text-slate-600">Loading...</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="min-h-screen bg-slate-50 py-8">
+      <div className="max-w-2xl mx-auto px-4">
         {/* Header */}
         <div className="mb-8">
-          <Link
-            href="/tracker"
-            className="text-sm text-slate-600 hover:text-slate-900 mb-2 inline-block"
-          >
-            ← Back to My Tracker
-          </Link>
+          <div className="flex items-center gap-4 mb-4">
+            <Link 
+              href="/tracker"
+              className="text-slate-600 hover:text-slate-900"
+            >
+              ← Back to Tracker
+            </Link>
+          </div>
           <h1 className="text-3xl font-bold text-slate-900">Record New Score</h1>
-          <p className="text-slate-600 mt-2">Log your workout performance</p>
+          <p className="text-slate-600 mt-2">
+            Record your performance for a workout
+          </p>
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* WOD Selection */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-            <h2 className="text-lg font-semibold text-slate-900 mb-4">Workout Details</h2>
-            
-            <div className="space-y-4">
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* WOD Selection */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Select WOD *
+              </label>
+              <select
+                value={selectedWodId}
+                onChange={(e) => setSelectedWodId(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                required
+              >
+                <option value="">Choose a WOD...</option>
+                {wods.map((wod) => (
+                  <option key={wod._id} value={wod._id}>
+                    {wod.name} - {wod.classification.scoringType}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* WOD Details Display */}
+            {selectedWod && (
+              <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+                <h3 className="font-medium text-slate-900 mb-2">WOD Details</h3>
+                <div className="space-y-2 text-sm">
+                  <div>
+                    <span className="font-medium">Name:</span> {selectedWod.name}
+                  </div>
+                  <div>
+                    <span className="font-medium">Type:</span> {selectedWod.classification.scoringType}
+                  </div>
+                  {selectedWod.classification.difficulty && (
+                    <div>
+                      <span className="font-medium">Difficulty:</span> {selectedWod.classification.difficulty}/5
+                    </div>
+                  )}
+                  <div>
+                    <span className="font-medium">Workout:</span> {formatWodStructure(selectedWod)}
+                  </div>
+                  {selectedWod.description && (
+                    <div>
+                      <span className="font-medium">Description:</span> {selectedWod.description}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Date */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Date *
+              </label>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                required
+              />
+            </div>
+
+            {/* Score Input */}
+            {selectedWod && (
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Select WOD *
+                  Score ({selectedWod.classification.scoringType}) *
                 </label>
-                <select
-                  value={selectedWodId}
-                  onChange={(e) => setSelectedWodId(e.target.value)}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent"
-                  required
-                >
-                  <option value="">Choose a WOD...</option>
-                  {wods.length === 0 ? (
-                    <option value="" disabled>No WODs available - Create one first</option>
-                  ) : (
-                    wods.map((wod) => (
-                      <option key={wod._id} value={wod._id}>
-                        {wod.name} ({wod.classification.scoringType})
-                      </option>
-                    ))
-                  )}
-                </select>
-                {wods.length === 0 && (
-                  <p className="mt-2 text-sm text-slate-500">
-                    You need to create a WOD first.{' '}
-                    <Link href="/wods/new" className="text-blue-600 hover:underline">
-                      Create your first WOD →
-                    </Link>
-                  </p>
+                
+                {selectedWod.classification.scoringType === 'For Time' && (
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="number"
+                      placeholder="Minutes"
+                      value={scoreTime.minutes || ''}
+                      onChange={(e) => setScoreTime(prev => ({ ...prev, minutes: parseInt(e.target.value) || 0 }))}
+                      className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-24"
+                      min="0"
+                    />
+                    <span>:</span>
+                    <input
+                      type="number"
+                      placeholder="Seconds"
+                      value={scoreTime.seconds || ''}
+                      onChange={(e) => setScoreTime(prev => ({ ...prev, seconds: parseInt(e.target.value) || 0 }))}
+                      className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-24"
+                      min="0"
+                      max="59"
+                    />
+                  </div>
+                )}
+
+                {selectedWod.classification.scoringType === 'AMRAP' && (
+                  <div className="space-y-2">
+                    <input
+                      type="number"
+                      placeholder="Completed rounds"
+                      value={scoreRounds || ''}
+                      onChange={(e) => setScoreRounds(e.target.value ? parseInt(e.target.value) : '')}
+                      className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-full"
+                      min="0"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Additional reps (optional)"
+                      value={scoreReps || ''}
+                      onChange={(e) => setScoreReps(e.target.value ? parseInt(e.target.value) : '')}
+                      className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-full"
+                      min="0"
+                    />
+                  </div>
+                )}
+
+                {selectedWod.classification.scoringType === 'Max Reps' && (
+                  <input
+                    type="number"
+                    placeholder="Total reps"
+                    value={scoreReps || ''}
+                    onChange={(e) => setScoreReps(e.target.value ? parseInt(e.target.value) : '')}
+                    className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-full"
+                    min="0"
+                  />
+                )}
+
+                {(selectedWod.classification.scoringType === 'Max Weight' || 
+                  selectedWod.classification.scoringType === 'Not Scored') && (
+                  <input
+                    type="text"
+                    placeholder="Enter score or description"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-full"
+                  />
                 )}
               </div>
+            )}
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Date *
-                </label>
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  max={new Date().toISOString().split('T')[0]}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent"
-                  required
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Score Input */}
-          {selectedWod && (
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">Score</h2>
-              
-              {/* WOD Info */}
-              <div className="bg-slate-50 rounded-lg p-4 mb-4">
-                <h3 className="font-medium text-slate-900">{selectedWod.name}</h3>
-                <p className="text-sm text-slate-600 mt-1">
-                  {selectedWod.classification.scoringType}
-                  {selectedWod.structure.rounds && ` - ${selectedWod.structure.rounds} rounds`}
-                  {selectedWod.structure.timeLimit && ` - ${Math.floor(selectedWod.structure.timeLimit / 60)} min`}
-                </p>
-              </div>
-
-              {/* Score Input Based on Type */}
-              {selectedWod.classification.scoringType === 'For Time' && (
-                <div className="flex items-center gap-2 mb-4">
-                  <input
-                    type="number"
-                    min="0"
-                    max="59"
-                    placeholder="MM"
-                    value={scoreTime.minutes || ''}
-                    onChange={(e) => setScoreTime(prev => ({ ...prev, minutes: Number(e.target.value) }))}
-                    className="w-20 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent text-center"
-                  />
-                  <span className="text-slate-600 font-semibold">:</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="59"
-                    placeholder="SS"
-                    value={scoreTime.seconds || ''}
-                    onChange={(e) => setScoreTime(prev => ({ ...prev, seconds: Math.min(59, Number(e.target.value)) }))}
-                    className="w-20 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent text-center"
-                  />
-                </div>
-              )}
-
-              {selectedWod.classification.scoringType === 'AMRAP' && (
-                <div className="flex items-center gap-2 mb-4">
-                  <input
-                    type="number"
-                    min="0"
-                    placeholder="Rounds"
-                    value={scoreRounds}
-                    onChange={(e) => setScoreRounds(e.target.value ? Number(e.target.value) : '')}
-                    className="w-24 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent"
-                  />
-                  <span className="text-slate-600">+</span>
-                  <input
-                    type="number"
-                    min="0"
-                    placeholder="Reps"
-                    value={scoreReps}
-                    onChange={(e) => setScoreReps(e.target.value ? Number(e.target.value) : '')}
-                    className="w-24 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent"
-                  />
-                </div>
-              )}
-
-              {selectedWod.classification.scoringType === 'Max Reps' && (
-                <div className="mb-4">
-                  <input
-                    type="number"
-                    min="0"
-                    placeholder="Total Reps"
-                    value={scoreReps}
-                    onChange={(e) => setScoreReps(e.target.value ? Number(e.target.value) : '')}
-                    className="w-32 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent"
-                  />
-                </div>
-              )}
-
-              {/* RX/Scaled */}
-              <div className="flex items-center gap-4 mb-4">
-                <label className="flex items-center space-x-2 cursor-pointer">
+            {/* RX/Scaled */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Performance Level
+              </label>
+              <div className="flex gap-4">
+                <label className="flex items-center">
                   <input
                     type="radio"
-                    checked={rxd && !scaled}
+                    name="performance"
+                    checked={rxd}
                     onChange={() => { setRxd(true); setScaled(false); }}
-                    className="h-4 w-4 text-slate-900 border-slate-300 focus:ring-slate-900"
+                    className="mr-2"
                   />
-                  <span className="text-sm font-medium text-slate-700">RX</span>
+                  RX (As Prescribed)
                 </label>
-                <label className="flex items-center space-x-2 cursor-pointer">
+                <label className="flex items-center">
                   <input
                     type="radio"
-                    checked={scaled && !rxd}
+                    name="performance"
+                    checked={scaled}
                     onChange={() => { setRxd(false); setScaled(true); }}
-                    className="h-4 w-4 text-slate-900 border-slate-300 focus:ring-slate-900"
+                    className="mr-2"
                   />
-                  <span className="text-sm font-medium text-slate-700">Scaled</span>
+                  Scaled
                 </label>
               </div>
             </div>
-          )}
 
-          {/* Notes & Feeling */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-            <h2 className="text-lg font-semibold text-slate-900 mb-4">Additional Details</h2>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  How did you feel?
-                </label>
-                <div className="flex gap-3">
-                  {feelingEmojis.map(({ rating, emoji, label }) => (
-                    <button
-                      key={rating}
-                      type="button"
-                      onClick={() => setFeelingRating(rating)}
-                      className={`flex flex-col items-center p-3 rounded-lg transition-all ${
-                        feelingRating === rating
-                          ? 'bg-slate-900 text-white'
-                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                      }`}
-                    >
-                      <span className="text-2xl mb-1">{emoji}</span>
-                      <span className="text-xs">{label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Notes
-                </label>
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={3}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent resize-none"
-                  placeholder="How was the workout? Any modifications? Strategy used?"
-                />
-              </div>
+            {/* Feeling Rating */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                How did it feel? (1 = Very Hard, 5 = Very Easy)
+              </label>
+              <select
+                value={feelingRating}
+                onChange={(e) => setFeelingRating(parseInt(e.target.value))}
+                className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value={1}>1 - Very Hard 😵</option>
+                <option value={2}>2 - Hard 😓</option>
+                <option value={3}>3 - Moderate 😊</option>
+                <option value={4}>4 - Easy 💪</option>
+                <option value={5}>5 - Very Easy 🔥</option>
+              </select>
             </div>
-          </div>
 
-          {/* Actions */}
-          <div className="flex justify-end gap-3">
-            <Link
-              href="/tracker"
-              className="px-6 py-2.5 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 font-medium"
-            >
-              Cancel
-            </Link>
-            <button
-              type="submit"
-              disabled={isSaving || !selectedWod}
-              className="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium disabled:opacity-50"
-            >
-              {isSaving ? 'Saving...' : 'Save Score'}
-            </button>
-          </div>
-        </form>
+            {/* Notes */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Notes (Optional)
+              </label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Any additional notes about this workout..."
+                rows={3}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+
+            {/* Submit Button */}
+            <div className="flex gap-4 pt-4">
+              <button
+                type="submit"
+                disabled={isSaving || !selectedWodId}
+                className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed font-medium"
+              >
+                {isSaving ? 'Saving...' : 'Save Score'}
+              </button>
+              <Link
+                href="/tracker"
+                className="px-6 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 font-medium text-center"
+              >
+                Cancel
+              </Link>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );
