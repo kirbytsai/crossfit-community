@@ -1,7 +1,11 @@
+// src/app/api/users/[userId]/personal-info/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import UserModel from '@/models/User';
 import { verifyToken } from '@/lib/auth';
+import { validate, userValidations, commonValidations } from '@/lib/validations';
+import { handleError, AuthenticationError, AuthorizationError, NotFoundError } from '@/lib/errors';
+import { z } from 'zod';
 
 interface Params {
   params: Promise<{
@@ -13,111 +17,99 @@ export async function PUT(request: NextRequest, { params }: Params) {
   try {
     const token = request.cookies.get('auth-token')?.value;
     if (!token) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      throw new AuthenticationError();
+    }
+
+    const payload = verifyToken(token);
+    const { userId } = await params;
+    const body = await request.json();
+
+    // 驗證 userId 格式
+    await validate(z.object({ userId: commonValidations.objectId }), { userId });
+
+    // 只能更新自己的資料
+    if (payload.userId !== userId) {
+      throw new AuthorizationError();
+    }
+
+    // 驗證更新資料
+    const validatedData = await validate(userValidations.updatePersonalInfo, body);
+
+    await dbConnect();
+
+    // 準備更新資料
+    const updateData: Record<string, unknown> = {};
+    
+    if (validatedData.height !== undefined) {
+      updateData['personalInfo.height'] = validatedData.height;
+    }
+    if (validatedData.weight !== undefined) {
+      updateData['personalInfo.weight'] = validatedData.weight;
+    }
+    if (validatedData.age !== undefined) {
+      updateData['personalInfo.age'] = validatedData.age;
+    }
+    if (validatedData.injuryNotes !== undefined) {
+      updateData['personalInfo.injuryNotes'] = validatedData.injuryNotes;
+    }
+
+    const user = await UserModel.findByIdAndUpdate(
+      userId,
+      { 
+        $set: {
+          ...updateData,
+          updatedAt: new Date()
+        }
+      },
+      { new: true, runValidators: true }
+    ).select('-lineUserId');
+
+    if (!user) {
+      throw new NotFoundError('User');
+    }
+
+    return NextResponse.json({ 
+      success: true,
+      user,
+      message: 'Personal information updated successfully'
+    });
+  } catch (error) {
+    const { status, response } = handleError(error);
+    return NextResponse.json(response, { status });
+  }
+}
+
+export async function GET(request: NextRequest, { params }: Params) {
+  try {
+    const token = request.cookies.get('auth-token')?.value;
+    if (!token) {
+      throw new AuthenticationError();
     }
 
     const payload = verifyToken(token);
     const { userId } = await params;
 
+    // 驗證 userId 格式
+    await validate(z.object({ userId: commonValidations.objectId }), { userId });
+
+    // 只能查看自己的資料
     if (payload.userId !== userId) {
-      return NextResponse.json(
-        { error: 'Forbidden' },
-        { status: 403 }
-      );
-    }
-
-    const body = await request.json();
-    const { personalInfo } = body;
-
-    console.log('Received personalInfo:', JSON.stringify(personalInfo, null, 2));
-
-    // Validate personal info
-    if (personalInfo.height && (personalInfo.height < 0 || personalInfo.height > 300)) {
-      return NextResponse.json(
-        { error: 'Invalid height value' },
-        { status: 400 }
-      );
-    }
-
-    if (personalInfo.weight && (personalInfo.weight < 0 || personalInfo.weight > 500)) {
-      return NextResponse.json(
-        { error: 'Invalid weight value' },
-        { status: 400 }
-      );
-    }
-
-    if (personalInfo.birthDate) {
-      const birthDate = new Date(personalInfo.birthDate);
-      const today = new Date();
-      if (birthDate > today) {
-        return NextResponse.json(
-          { error: 'Birth date cannot be in the future' },
-          { status: 400 }
-        );
-      }
-    }
-
-    // Validate injury notes
-    if (personalInfo.injuryNotes && Array.isArray(personalInfo.injuryNotes)) {
-      for (const injury of personalInfo.injuryNotes) {
-        if (!injury.date || !injury.note) {
-          return NextResponse.json(
-            { error: 'Each injury note must have both date and note' },
-            { status: 400 }
-          );
-        }
-      }
+      throw new AuthorizationError();
     }
 
     await dbConnect();
     
-    // 建立更新物件
-    const updateData: any = {
-      'personalInfo.height': personalInfo.height || undefined,
-      'personalInfo.weight': personalInfo.weight || undefined,
-      'personalInfo.gender': personalInfo.gender || undefined,
-    };
-
-    // 處理 birthDate
-    if (personalInfo.birthDate) {
-      updateData['personalInfo.birthDate'] = new Date(personalInfo.birthDate);
-    }
-
-    // 處理 injuryNotes
-    if (personalInfo.injuryNotes) {
-      updateData['personalInfo.injuryNotes'] = personalInfo.injuryNotes.map((injury: any) => ({
-        date: new Date(injury.date),
-        note: injury.note
-      }));
-    }
-
-    console.log('Update data:', JSON.stringify(updateData, null, 2));
-    
-    const user = await UserModel.findByIdAndUpdate(
-      userId,
-      { $set: updateData },
-      { new: true, runValidators: true }
-    ).select('-__v');
+    const user = await UserModel.findById(userId).select('personalInfo');
 
     if (!user) {
-      return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
-      );
+      throw new NotFoundError('User');
     }
 
     return NextResponse.json({ 
-      success: true,
-      user 
+      personalInfo: user.personalInfo || {}
     });
   } catch (error) {
-    console.error('Update personal info error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    const { status, response } = handleError(error);
+    return NextResponse.json(response, { status });
   }
 }

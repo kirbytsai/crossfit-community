@@ -3,51 +3,46 @@ import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import ScoreModel from '@/models/Score';
 import { verifyToken } from '@/lib/auth';
+import { validate, scoreValidations, commonValidations } from '@/lib/validations';
+import { handleError, AuthenticationError, AuthorizationError, NotFoundError, ValidationError } from '@/lib/errors';
 
 interface Params {
-  params: {
+  params: Promise<{
     scoreId: string;
-  };
+  }>;
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
   try {
     const token = request.cookies.get('auth-token')?.value;
     if (!token) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      throw new AuthenticationError();
     }
 
     const payload = verifyToken(token);
+    const { scoreId } = await params;
+
+    // 驗證 scoreId 格式
+    await validate(z.object({ scoreId: commonValidations.objectId }), { scoreId });
+
     await dbConnect();
 
-    const score = await ScoreModel.findById(params.scoreId)
+    const score = await ScoreModel.findById(scoreId)
       .populate('wodId');
 
     if (!score) {
-      return NextResponse.json(
-        { error: 'Score not found' },
-        { status: 404 }
-      );
+      throw new NotFoundError('Score');
     }
 
     // 確認這個成績屬於當前用戶
     if (score.userId.toString() !== payload.userId) {
-      return NextResponse.json(
-        { error: 'Forbidden' },
-        { status: 403 }
-      );
+      throw new AuthorizationError();
     }
 
     return NextResponse.json({ score });
   } catch (error) {
-    console.error('Get score error:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch score' },
-      { status: 500 }
-    );
+    const { status, response } = handleError(error);
+    return NextResponse.json(response, { status });
   }
 }
 
@@ -55,54 +50,63 @@ export async function PUT(request: NextRequest, { params }: Params) {
   try {
     const token = request.cookies.get('auth-token')?.value;
     if (!token) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      throw new AuthenticationError();
     }
 
     const payload = verifyToken(token);
+    const { scoreId } = await params;
     const body = await request.json();
+
+    // 驗證 scoreId 格式
+    await validate(z.object({ scoreId: commonValidations.objectId }), { scoreId });
+
+    // 驗證更新資料
+    const validatedData = await validate(scoreValidations.update, body);
 
     await dbConnect();
 
     // 先檢查成績是否存在
-    const score = await ScoreModel.findById(params.scoreId);
+    const score = await ScoreModel.findById(scoreId);
     if (!score) {
-      return NextResponse.json(
-        { error: 'Score not found' },
-        { status: 404 }
-      );
+      throw new NotFoundError('Score');
     }
 
     // 確認這個成績屬於當前用戶
     if (score.userId.toString() !== payload.userId) {
-      return NextResponse.json(
-        { error: 'Forbidden' },
-        { status: 403 }
-      );
+      throw new AuthorizationError();
+    }
+
+    // 準備更新資料
+    const updateData: Record<string, unknown> = {
+      updatedAt: new Date(),
+    };
+
+    if (validatedData.performance) {
+      updateData.performance = {
+        ...score.performance,
+        ...validatedData.performance,
+      };
+    }
+
+    if (validatedData.details) {
+      updateData.details = {
+        ...score.details,
+        ...validatedData.details,
+        date: validatedData.details.date ? new Date(validatedData.details.date) : score.details.date,
+      };
     }
 
     // 更新成績
     const updatedScore = await ScoreModel.findByIdAndUpdate(
-      params.scoreId,
-      { 
-        performance: body.performance,
-        details: body.details,
-        updatedAt: new Date()
-      },
+      scoreId,
+      { $set: updateData },
       { new: true, runValidators: true }
     ).populate('wodId');
 
-    return NextResponse.json({ 
-      score: updatedScore 
-    });
+    return NextResponse.json({ score: updatedScore });
   } catch (error) {
-    console.error('Update score error:', error);
-    return NextResponse.json(
-      { error: 'Failed to update score' },
-      { status: 500 }
-    );
+    const { status, response } = handleError(error);
+    return NextResponse.json(response, { status });
   }
 }
 
@@ -110,43 +114,39 @@ export async function DELETE(request: NextRequest, { params }: Params) {
   try {
     const token = request.cookies.get('auth-token')?.value;
     if (!token) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      throw new AuthenticationError();
     }
 
     const payload = verifyToken(token);
+    const { scoreId } = await params;
+
+    // 驗證 scoreId 格式
+    await validate(z.object({ scoreId: commonValidations.objectId }), { scoreId });
+
     await dbConnect();
 
     // 先檢查成績是否存在
-    const score = await ScoreModel.findById(params.scoreId);
+    const score = await ScoreModel.findById(scoreId);
     if (!score) {
-      return NextResponse.json(
-        { error: 'Score not found' },
-        { status: 404 }
-      );
+      throw new NotFoundError('Score');
     }
 
     // 確認這個成績屬於當前用戶
     if (score.userId.toString() !== payload.userId) {
-      return NextResponse.json(
-        { error: 'Forbidden' },
-        { status: 403 }
-      );
+      throw new AuthorizationError();
     }
 
     // 刪除成績
-    await ScoreModel.findByIdAndDelete(params.scoreId);
+    await ScoreModel.findByIdAndDelete(scoreId);
 
     return NextResponse.json({ 
       message: 'Score deleted successfully' 
     });
   } catch (error) {
-    console.error('Delete score error:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete score' },
-      { status: 500 }
-    );
+    const { status, response } = handleError(error);
+    return NextResponse.json(response, { status });
   }
 }
+
+// 需要在檔案頂部加入
+import { z } from 'zod';

@@ -2,53 +2,71 @@
 import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import ScoreModel from '@/models/Score';
+import WodModel from '@/models/Wod';
 import { verifyToken } from '@/lib/auth';
+import { validate, scoreValidations } from '@/lib/validations';
+import { handleError, AuthenticationError, NotFoundError } from '@/lib/errors';
 
 export async function POST(request: NextRequest) {
   try {
+    // 認證檢查
     const token = request.cookies.get('auth-token')?.value;
     if (!token) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      throw new AuthenticationError();
     }
 
     const payload = verifyToken(token);
     const body = await request.json();
 
-    // 驗證必要欄位
-    if (!body.wodId) {
-      return NextResponse.json(
-        { error: 'WOD ID is required' },
-        { status: 400 }
-      );
-    }
-
-    if (!body.performance?.score) {
-      return NextResponse.json(
-        { error: 'Score is required' },
-        { status: 400 }
-      );
-    }
+    // 驗證輸入資料
+    const validatedData = await validate(scoreValidations.create, body);
 
     await dbConnect();
+    
+    // 確保 Wod model 被載入
+    WodModel;
+
+    // 檢查 WOD 是否存在
+    const wodExists = await WodModel.exists({ _id: validatedData.wodId });
+    if (!wodExists) {
+      throw new NotFoundError('WOD');
+    }
+
+    // 準備成績資料
+    const scoreData = {
+      userId: payload.userId,
+      wodId: validatedData.wodId,
+      performance: {
+        score: validatedData.performance.score,
+        scoreValue: validatedData.performance.scoreValue || 0,
+        scoringType: validatedData.performance.scoringType,
+        rxd: validatedData.performance.rxd || false,
+        scaled: validatedData.performance.scaled || false,
+      },
+      details: {
+        date: validatedData.details?.date ? new Date(validatedData.details.date) : new Date(),
+        notes: validatedData.details?.notes || '',
+        feelingRating: validatedData.details?.feelingRating || null,
+      },
+      social: {
+        likes: [],
+        isPublic: true,
+      },
+    };
 
     // 建立成績記錄
-    const score = await ScoreModel.create({
-      ...body,
-      userId: payload.userId,
-    });
+    const score = await ScoreModel.create(scoreData);
 
-    console.log('Score created:', score._id);
+    console.log('Score created successfully:', score._id);
 
-    return NextResponse.json({ score });
+    // 回傳時 populate WOD 資訊
+    const populatedScore = await ScoreModel.findById(score._id)
+      .populate('wodId', 'name classification.scoringType');
+
+    return NextResponse.json({ score: populatedScore }, { status: 201 });
   } catch (error) {
-    console.error('Create score error:', error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to create score' },
-      { status: 500 }
-    );
+    const { status, response } = handleError(error);
+    return NextResponse.json(response, { status });
   }
 }
 
@@ -56,29 +74,41 @@ export async function GET(request: NextRequest) {
   try {
     const token = request.cookies.get('auth-token')?.value;
     if (!token) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      throw new AuthenticationError();
     }
 
     const payload = verifyToken(token);
     const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get('limit') || '20');
+    const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 100);
+    const page = Math.max(parseInt(searchParams.get('page') || '1'), 1);
 
     await dbConnect();
+    
+    // 確保 Wod model 被載入
+    WodModel;
 
-    const scores = await ScoreModel.find({ userId: payload.userId })
-      .populate('wodId', 'name classification.scoringType')
-      .sort({ 'details.date': -1 })
-      .limit(limit);
+    const skip = (page - 1) * limit;
+    
+    const [scores, total] = await Promise.all([
+      ScoreModel.find({ userId: payload.userId })
+        .populate('wodId', 'name classification.scoringType')
+        .sort({ 'details.date': -1 })
+        .skip(skip)
+        .limit(limit),
+      ScoreModel.countDocuments({ userId: payload.userId }),
+    ]);
 
-    return NextResponse.json({ scores });
+    return NextResponse.json({
+      scores,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
   } catch (error) {
-    console.error('Get scores error:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch scores' },
-      { status: 500 }
-    );
+    const { status, response } = handleError(error);
+    return NextResponse.json(response, { status });
   }
 }

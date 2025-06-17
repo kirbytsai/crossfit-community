@@ -1,81 +1,86 @@
+// src/app/api/wods/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import WodModel from '@/models/Wod';
 import { verifyToken } from '@/lib/auth';
+import { validate, wodValidations } from '@/lib/validations';
+import { handleError, AuthenticationError } from '@/lib/errors';
 
 export async function POST(request: NextRequest) {
   try {
+    // 認證檢查
     const token = request.cookies.get('auth-token')?.value;
     if (!token) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      throw new AuthenticationError();
     }
 
     const payload = verifyToken(token);
     const body = await request.json();
 
-    // Validate required fields
-    if (!body.name || !body.classification?.scoringType) {
-      return NextResponse.json(
-        { error: 'Name and scoring type are required' },
-        { status: 400 }
-      );
-    }
-
-    if (!body.structure?.movements || body.structure.movements.length === 0) {
-      return NextResponse.json(
-        { error: 'At least one movement is required' },
-        { status: 400 }
-      );
-    }
+    // 驗證輸入資料
+    const validatedData = await validate(wodValidations.create, body);
 
     await dbConnect();
 
-    // Create WOD
+    // 建立 WOD
     const wod = await WodModel.create({
-      ...body,
+      ...validatedData,
       metadata: {
-        ...body.metadata,
+        ...validatedData.metadata,
         createdBy: payload.userId,
       },
     });
 
-    return NextResponse.json({ wod });
+    console.log('WOD created:', wod._id);
+
+    return NextResponse.json({ wod }, { status: 201 });
   } catch (error) {
-    console.error('Create WOD error:', error);
-    return NextResponse.json(
-      { error: 'Failed to create WOD' },
-      { status: 500 }
-    );
+    const { status, response } = handleError(error);
+    return NextResponse.json(response, { status });
   }
 }
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get('limit') || '20');
+    const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 100);
+    const page = Math.max(parseInt(searchParams.get('page') || '1'), 1);
     const isPublic = searchParams.get('public') === 'true';
 
     await dbConnect();
 
-    let query: any = {};
+    interface WodQuery {
+      'metadata.isPublic'?: boolean;
+    }
+
+    const query: WodQuery = {};
     if (isPublic) {
       query['metadata.isPublic'] = true;
     }
 
-    const wods = await WodModel.find(query)
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .populate('metadata.createdBy', 'username displayName profilePicture');
+    const skip = (page - 1) * limit;
+    
+    const [wods, total] = await Promise.all([
+      WodModel.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('metadata.createdBy', 'username displayName profilePicture')
+        .lean(),
+      WodModel.countDocuments(query),
+    ]);
 
-    return NextResponse.json({ wods });
+    return NextResponse.json({
+      wods,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
   } catch (error) {
-    console.error('Get WODs error:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch WODs' },
-      { status: 500 }
-    );
+    const { status, response } = handleError(error);
+    return NextResponse.json(response, { status });
   }
 }
