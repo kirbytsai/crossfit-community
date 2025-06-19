@@ -4,9 +4,9 @@
 const mongoose = require('mongoose');
 
 // ===== 重要：請修改這裡的設定 =====
-const MONGODB_URI = 'mongodb+srv://wod:wod@cluster0.abow00a.mongodb.net/crossfit-community?retryWrites=true&w=majority&appName=Cluster0';
 
 const USER_ID = '684e5aa5bc397c17b8e5b86f'; // 請替換為您的實際用戶 ID
+// ==================================
 // ==================================
 
 // WOD Schema 定義
@@ -55,7 +55,9 @@ const dummyWODs = [
     ],
     tags: ["bodyweight", "benchmark", "hero"],
     description: "Classic CrossFit benchmark workout",
-    scope: "public"
+    metadata: {
+      isPublic: true
+    }
   },
   {
     name: "Mary",
